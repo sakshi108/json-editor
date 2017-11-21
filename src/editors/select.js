@@ -96,7 +96,9 @@ JSONEditor.defaults.editors.select = JSONEditor.AbstractEditor.extend({
       this.enum_display = [];
       this.enum_options = [];
       this.enum_values = [];
-      
+      this.original_parent_editors = {};
+      Object.assign(this.original_parent_editors, this.parent.editors);
+
       // Shortcut declaration for using a single array
       if(!(Array.isArray(this.schema.enumSource))) {
         if(this.schema.enumValue) {
@@ -145,6 +147,19 @@ JSONEditor.defaults.editors.select = JSONEditor.AbstractEditor.extend({
         if(this.enumSource[i].filter) {
           this.enumSource[i].filter = this.jsoneditor.compileTemplate(this.enumSource[i].filter, this.template_engine);
         }
+        // if the source yet is an object, then try to pull the $ref
+        if(this.enumSource[i].source && typeof this.enumSource[i].source == "object") {
+            var src = this.jsoneditor.expandRefs(this.enumSource[i].source);
+            this.enumSource[i].source = [];
+            this.enumSource[i].sourceByKey = {};
+            var j;
+            var keys = Object.keys(src).sort();
+            for (j=0; j<keys.length; j++)
+            {
+                this.enumSource[i].source.push(src[j]);
+                this.enumSource[i].sourceByKey[src[j].title] = src[j];
+            }
+        }
       }
     }
     // Other, not supported
@@ -178,8 +193,67 @@ JSONEditor.defaults.editors.select = JSONEditor.AbstractEditor.extend({
 
     this.value = this.enum_values[0];
   },
+   addDynamicSchema: function(ref, prebuild_only) {
+    if(this.enumSource && this.enumSource.length > 0 && this.enumSource[0].hasOwnProperty('sourceByKey'))
+    {
+        var self = this;
+        var parent = this.parent;
+        var component = this.enumSource[0].sourceByKey[ref];
+        var title = component.title;
+
+        for(var rm_editor in parent.editors)
+        {
+            if(!this.original_parent_editors.hasOwnProperty(rm_editor))
+            {
+                delete parent.editors[rm_editor];
+            }
+        }
+        // Property is already added
+        if(parent.editors[title]) return;
+
+        // Property was added before and is cached
+        if(parent.cached_editors[title]) {
+          parent.editors[title] = parent.cached_editors[title];
+          if(prebuild_only) return;
+          parent.editors[title].register();
+        }
+        // New property
+        else {
+          var schema = component.schema;
+
+
+          // Add the property
+          var editor = parent.jsoneditor.getEditorClass(schema);
+
+          parent.editors[title] = parent.jsoneditor.createEditor(editor,{
+            jsoneditor: parent.jsoneditor,
+            schema: schema,
+            path: parent.path+'.'+title,
+            parent: parent
+          });
+          parent.editors[title].preBuild();
+
+          if(!prebuild_only) {
+            var holder = parent.theme.getChildEditorHolder();
+            parent.editor_holder.appendChild(holder);
+            parent.editors[title].setContainer(holder);
+            parent.editors[title].build();
+            parent.editors[title].postBuild();
+          }
+
+          parent.cached_editors[title] = parent.editors[title];
+        }
+
+        // If we're only prebuilding the editors, don't refresh values
+        if(!prebuild_only) {
+          parent.refreshValue();
+          parent.layoutEditors();
+        }
+     }
+  },
   onInputChange: function() {
     var val = this.input.value;
+    this.addDynamicSchema(val);
 
     var new_val;
     // Invalid option, use first option instead

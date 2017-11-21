@@ -4,7 +4,7 @@ module.exports = function(grunt) {
   grunt.initConfig({
     concat: {
       options: {
-        sourceMap: true
+        sourceMap: false
       },
       dist: {
         dest: 'dist/jsoneditor.js',
